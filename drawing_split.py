@@ -5,14 +5,14 @@
 #    https://github.com/Korchy/1d_drawing_split
 
 import bpy
-from bpy.types import Operator, Panel
+from bpy.types import Object, Operator, Panel
 import bmesh
 
 bl_info = {
     "name": "Drawings Split",
     "description": "Split drawings by border",
     "author": "Nikita Akimov, Paul Kotelevets",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (2, 79, 0),
     "location": "View3D > Tool panel > 1D > DrewingsSplit",
     "doc_url": "https://github.com/Korchy/1d_drawing_split",
@@ -31,57 +31,89 @@ class DrawingSplit:
         cls._deselect_all(context=context)
         context.object.select = True
         bpy.ops.mesh.separate(type='LOOSE')
-        borders_list = context.selected_objects[:]
-        # split all objects by loose parts
-        cls._select_all(context=context)
-        # don't split borders
-        for obj in borders_list:
-            obj.select = False
-        # don't split instances (when try - loose all instances except the first)
-        for obj in context.blend_data.objects:
-            if obj.data.users > 1:
-                obj.select = False
-        bpy.ops.mesh.separate(type='LOOSE')
-        # for each border object - get objects inside it
-        for border in borders_list:
-            cls._deselect_all(context=context)
-            # get border points
-            border_points = cls._points_sorted(obj=border)
-            border_points_global = [border.matrix_world * p.co for p in border_points]
-            # border points coordinates in X-Y projection
-            border_points_global_xy = [(p.x, p.y) for p in border_points_global]
-            # get check objects - if object is inside border
-            check_obj = (obj for obj in context.blend_data.objects
-                         if obj.type == 'MESH' and obj not in borders_list)
-            for obj in check_obj:
-                inside = True
-                for point in obj.data.vertices:
-                    # objects points coordinates in X-Y projection
-                    point_global = obj.matrix_world * point.co
-                    point_global_xy = [point_global.x, point_global.y]
-                    # check if object point is inside border
-                    rez = cls._point_inside_polygon(
-                        polygon=border_points_global_xy,
-                        point=point_global_xy
-                    )
-                    if rez == 0:
-                        inside = False
-                        break
-                # select object if all its points is inside border
-                if inside:
-                    obj.select = True
-                else:
-                    obj.select = False
-            # jon selected objects
-            if context.selected_objects:
-                context.scene.objects.active = context.selected_objects[0]
-                bpy.ops.object.join()
+        borders = context.selected_objects[:]
+        borders_aabb = [(border, cls._aabb_2d(border)) for border in borders]
+        # check only meshes, not borders, not instances
+        checking_objects = (obj for obj in context.blend_data.objects
+                            if obj not in borders
+                            and obj.type == 'MESH'
+                            and obj.users == 1)
+        # check objects
+        cls._deselect_all(context=context)
+        for obj in checking_objects:
+            # for each object to chedk
+            for border, border_aabb in borders_aabb:
+                # check for each border
+                border_points_closed_sequence = cls._points_sorted(obj=border)
+                polygon = [(v_co_world.x, v_co_world.y) for v_co_world in
+                           (border.matrix_world * vertex.co for vertex in border_points_closed_sequence)]
+                # first - check by bounding boxes
+                if cls._collision_aabb(cls._aabb_2d(obj), border_aabb):
+                    # if aabb have collision
+                    cls._deselect_all_vertices(obj=obj)
+                    # check each point of checking object
+                    for point in cls._points_xy(obj=obj):
+                        # check if object point is inside border
+                        rez = cls._point_inside_polygon(
+                            polygon=polygon,
+                            point=point[1]
+                        )
+                        # select if point inside border
+                        point[0].select = rez
+                # selected vertices
+                selected = len([v for v in obj.data.vertices if v.select])
+                all_vertices = len(obj.data.vertices)
+                if selected and selected != all_vertices:
+                    # if object has points inside border (now selected)
+                    #   and there ara not all points of the object - split selected points to another object
+                    context.scene.objects.active = obj
+                    bpy.ops.object.mode_set(mode='EDIT')
+                    bpy.ops.mesh.separate(type='SELECTED')
+                    bpy.ops.object.mode_set(mode='OBJECT')
         # join border objects back
         cls._deselect_all(context=context)
-        for obj in borders_list:
+        for obj in borders:
             obj.select = True
         context.scene.objects.active = context.selected_objects[0]
         bpy.ops.object.join()
+
+    @staticmethod
+    def _deselect_all_vertices(obj: Object):
+        # deselect all vertices for object (in OBJECT mode)
+        for p in obj.data.polygons:
+            p.select = False
+        for e in obj.data.edges:
+            e.select = False
+        for v in obj.data.vertices:
+            v.select = False
+
+    @staticmethod
+    def _collision_aabb(bbox_1, bbox_2):
+        # check collision of two axis aligned bounding boxes
+        if bbox_1['min_x'] < bbox_2['max_x'] \
+                and bbox_1['max_x'] > bbox_2['min_x'] \
+                and bbox_1['min_y'] < bbox_2['max_y'] \
+                and bbox_1['max_y'] > bbox_2['min_y']:
+            return True
+        else:
+            return False
+
+    @classmethod
+    def _aabb_2d(cls, obj: Object):
+        # get aligned bounding box for mesh in X-Y projection
+        x, y = zip(*(p[1] for p in cls._points_xy(obj=obj)))
+        return {
+            "min_x": min(x),
+            "min_y": min(y),
+            "max_x": max(x),
+            "max_y": max(y)
+        }
+
+    @staticmethod
+    def _points_xy(obj: Object):
+        # get points in X-Y projection in world coordinate system
+        return ((v_co_world[0], (v_co_world[1].x, v_co_world[1].y)) for v_co_world in
+                ((vertex, obj.matrix_world * vertex.co) for vertex in obj.data.vertices))
 
     @staticmethod
     def _points_sorted(obj):
@@ -110,6 +142,7 @@ class DrawingSplit:
     @staticmethod
     def _point_inside_polygon(polygon, point):
         # check if point is inside polygon in X-Y projection
+        # polygon - closed sorted sequence of point coordinates, point - coordinates
         length = len(polygon) - 1
         dy2 = point[1] - polygon[0][1]
         intersections = 0
@@ -144,14 +177,6 @@ class DrawingSplit:
             bpy.ops.object.select_all(action='DESELECT')
         elif context.active_object.mode == 'EDIT':
             bpy.ops.mesh.select_all(action='DESELECT')
-
-    @staticmethod
-    def _select_all(context):
-        if context.active_object.mode == 'OBJECT':
-            bpy.ops.object.select_all(action='SELECT')
-        elif context.active_object.mode == 'EDIT':
-            bpy.ops.mesh.select_all(action='SELECT')
-
 
 ## OPERATORS
 
