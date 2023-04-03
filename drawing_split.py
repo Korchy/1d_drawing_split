@@ -12,7 +12,7 @@ bl_info = {
     "name": "Drawings Split",
     "description": "Split drawings by border",
     "author": "Nikita Akimov, Paul Kotelevets",
-    "version": (1, 0, 1),
+    "version": (1, 0, 2),
     "blender": (2, 79, 0),
     "location": "View3D > Tool panel > 1D > DrewingsSplit",
     "doc_url": "https://github.com/Korchy/1d_drawing_split",
@@ -121,6 +121,7 @@ class DrawingSplit:
         bm = bmesh.new()
         bm.from_mesh(obj.data)
         bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
         # create a list with sorted indices of mesh vertices
         vertices_indices_sorted = []
         vertex = bm.verts[0]
@@ -128,11 +129,13 @@ class DrawingSplit:
         i = 0
         while vertex is not None:
             vertices_indices_sorted.append(vertex.index)
-            edge = next((_edge for _edge in vertex.link_edges if _edge.verts[1] != vertex), None)
-            vertex = edge.verts[1] if edge.verts[1].index not in vertices_indices_sorted else None
+            edge = next((_edge for _edge in vertex.link_edges
+                         if _edge.other_vert(vertex).index not in vertices_indices_sorted), None)
+            vertex = edge.other_vert(vertex) if edge else None
             # alarm break
             i += 1
             if i > l:
+                print('_points_sorted() err exit')
                 break
         # add first to last to close loop
         vertices_indices_sorted.append(vertices_indices_sorted[0])
