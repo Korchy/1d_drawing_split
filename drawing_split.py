@@ -12,7 +12,7 @@ bl_info = {
     "name": "Drawings Split",
     "description": "Split drawings by border",
     "author": "Nikita Akimov, Paul Kotelevets",
-    "version": (1, 0, 2),
+    "version": (1, 0, 4),
     "blender": (2, 79, 0),
     "location": "View3D > Tool panel > 1D > DrewingsSplit",
     "doc_url": "https://github.com/Korchy/1d_drawing_split",
@@ -40,17 +40,18 @@ class DrawingSplit:
                             and obj.users == 1)
         # check objects
         cls._deselect_all(context=context)
+        future_selection = []   # for future additional selection
         for obj in checking_objects:
-            # for each object to chedk
+            cls._deselect_all_vertices(obj=obj)
+            # for each object to check
             for border, border_aabb in borders_aabb:
                 # check for each border
                 border_points_closed_sequence = cls._points_sorted(obj=border)
-                polygon = [(v_co_world.x, v_co_world.y) for v_co_world in
-                           (border.matrix_world * vertex.co for vertex in border_points_closed_sequence)]
                 # first - check by bounding boxes
                 if cls._collision_aabb(cls._aabb_2d(obj), border_aabb):
                     # if aabb have collision
-                    cls._deselect_all_vertices(obj=obj)
+                    polygon = [(v_co_world.x, v_co_world.y) for v_co_world in
+                               (border.matrix_world * vertex.co for vertex in border_points_closed_sequence)]
                     # check each point of checking object
                     for point in cls._points_xy(obj=obj):
                         # check if object point is inside border
@@ -59,23 +60,35 @@ class DrawingSplit:
                             point=point[1]
                         )
                         # select if point inside border
-                        point[0].select = rez
+                        point[0].select = (point[0].select or rez)
                 # selected vertices
                 selected = len([v for v in obj.data.vertices if v.select])
                 all_vertices = len(obj.data.vertices)
-                if selected and selected != all_vertices:
+                # if selected and selected != all_vertices:
+                if selected:
                     # if object has points inside border (now selected)
-                    #   and there ara not all points of the object - split selected points to another object
-                    context.scene.objects.active = obj
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    bpy.ops.mesh.separate(type='SELECTED')
-                    bpy.ops.object.mode_set(mode='OBJECT')
+                    if selected != all_vertices:
+                        # and there ara not all points of the object - split selected points to another object
+                        context.scene.objects.active = obj
+                        bpy.ops.object.mode_set(mode='EDIT')
+                        bpy.ops.mesh.separate(type='SELECTED')
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                    else:
+                        # has selected objects and all of them are inside border (whole object inside border)
+                        #   mark for future selection
+                        future_selection.append(obj)
+        # add to future selection all currently selected objects - stayed selected objects inside borders
+        for obj in context.selected_objects:
+            future_selection.append(obj)
         # join border objects back
         cls._deselect_all(context=context)
         for obj in borders:
             obj.select = True
         context.scene.objects.active = context.selected_objects[0]
         bpy.ops.object.join()
+        # select objects that has all points inside border
+        for obj in future_selection:
+            obj.select = True
 
     @staticmethod
     def _deselect_all_vertices(obj: Object):
