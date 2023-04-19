@@ -12,7 +12,7 @@ bl_info = {
     "name": "Drawings Split",
     "description": "Split drawings by border",
     "author": "Nikita Akimov, Paul Kotelevets",
-    "version": (1, 0, 4),
+    "version": (1, 0, 5),
     "blender": (2, 79, 0),
     "location": "View3D > Tool panel > 1D > DrewingsSplit",
     "doc_url": "https://github.com/Korchy/1d_drawing_split",
@@ -28,16 +28,20 @@ class DrawingSplit:
     def split(cls, context):
         bpy.ops.object.mode_set(mode='OBJECT')
         # split border object to separate borders (by loose parts) and save to list
+        selected_objects = context.selected_objects[:]  # process only for selection
+        # split border to separate borders
         cls._deselect_all(context=context)
         context.object.select = True
         bpy.ops.mesh.separate(type='LOOSE')
         borders = context.selected_objects[:]
         borders_aabb = [(border, cls._aabb_2d(border)) for border in borders]
-        # check only meshes, not borders, not instances
-        checking_objects = (obj for obj in context.blend_data.objects
+        # check only meshes, not borders, not instances, hss vertices
+        checking_objects = (obj for obj in selected_objects
                             if obj not in borders
                             and obj.type == 'MESH'
-                            and obj.users == 1)
+                            and obj.users == 1
+                            and obj.data.vertices
+                            )
         # check objects
         cls._deselect_all(context=context)
         future_selection = []   # for future additional selection
