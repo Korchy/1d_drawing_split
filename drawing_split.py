@@ -12,7 +12,7 @@ bl_info = {
     "name": "Drawings Split",
     "description": "Split drawings by border",
     "author": "Nikita Akimov, Paul Kotelevets",
-    "version": (1, 0, 5),
+    "version": (1, 0, 6),
     "blender": (2, 79, 0),
     "location": "View3D > Tool panel > 1D > DrewingsSplit",
     "doc_url": "https://github.com/Korchy/1d_drawing_split",
@@ -20,7 +20,8 @@ bl_info = {
     "category": "All"
 }
 
-## MAIN CLASS
+
+# MAIN CLASS
 
 class DrawingSplit:
 
@@ -198,7 +199,17 @@ class DrawingSplit:
         elif context.active_object.mode == 'EDIT':
             bpy.ops.mesh.select_all(action='DESELECT')
 
-## OPERATORS
+    @staticmethod
+    def ui(layout):
+        # ui panel
+        layout.operator(
+            'drawinds_split.split',
+            text='Split',
+            icon='SPLITSCREEN'
+        )
+
+
+# OPERATORS
 
 class DrawingsSplit_OT_split(Operator):
     bl_idname = 'drawinds_split.split'
@@ -210,7 +221,7 @@ class DrawingsSplit_OT_split(Operator):
         return {'FINISHED'}
 
 
-## PANELS
+# PANELS
 
 class DrawingsSplit_PT_panel(Panel):
     bl_space_type = 'VIEW_3D'
@@ -219,18 +230,20 @@ class DrawingsSplit_PT_panel(Panel):
     bl_category = '1D'
 
     def draw(self, context):
-        layout = self.layout
-        layout.operator('drawinds_split.split', text='Split', icon='SPLITSCREEN')
+        DrawingSplit.ui(layout=self.layout)
 
-## REGISTER
 
-def register():
+# REGISTER
+
+def register(ui=True):
     bpy.utils.register_class(DrawingsSplit_OT_split)
-    bpy.utils.register_class(DrawingsSplit_PT_panel)
+    if ui:
+        bpy.utils.register_class(DrawingsSplit_PT_panel)
 
 
-def unregister():
-    bpy.utils.unregister_class(DrawingsSplit_PT_panel)
+def unregister(ui=True):
+    if ui:
+        bpy.utils.unregister_class(DrawingsSplit_PT_panel)
     bpy.utils.unregister_class(DrawingsSplit_OT_split)
 
 
